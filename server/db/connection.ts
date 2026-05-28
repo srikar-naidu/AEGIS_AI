@@ -1,10 +1,6 @@
 import mongoose from 'mongoose';
 
-const MONGODB_URI = process.env.MONGODB_URI || '';
 
-if (!MONGODB_URI) {
-  throw new Error('Please define the MONGODB_URI environment variable in .env.local');
-}
 
 interface MongooseCache {
   conn: typeof mongoose | null;
@@ -28,11 +24,17 @@ export async function connectDB(): Promise<typeof mongoose> {
   }
 
   if (!cached.promise) {
+    const MONGODB_URI = process.env.MONGODB_URI || '';
+    if (!MONGODB_URI) {
+      throw new Error('Please define the MONGODB_URI environment variable in .env.local');
+    }
+
     const opts = {
-      bufferCommands: false,
+      bufferCommands: true,
       maxPoolSize: 10,
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
+      dbName: 'aegis-ai',
     };
 
     cached.promise = mongoose.connect(MONGODB_URI, opts).then((mongooseInstance) => {

@@ -1,26 +1,153 @@
 @import "tailwindcss";
 
+@theme {
+  /* Design Tokens (Theme Colors) */
+  --color-bg-abyss: #051F20;
+  --color-bg-deep: #0B2B26;
+  --color-bg-forest: #163832;
+  --color-bg-pine: #235347;
+  --color-accent-sage: #8EB69B;
+  --color-accent-mint: #D6EFE2;
+
+  --color-emergency-red: #EF4444;
+  --color-emergency-orange: #F97316;
+  --color-emergency-amber: #F59E0B;
+  --color-success-green: #10B981;
+  --color-info-cyan: #06B6D4;
+
+  /* Typography Override */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-heading: var(--font-heading), ui-sans-serif, system-ui, sans-serif;
+  
+  /* Layout utilities */
+  --animate-pulse-slow: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-scan: scan 8s linear infinite;
+  --animate-grid-move: gridMove 20s linear infinite;
+}
+
+@keyframes scan {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+@keyframes gridMove {
+  0% { background-position: 0 0; }
+  100% { background-position: 40px 40px; }
+}
+
+/* Custom Base Styles */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-bg-abyss);
+  color: var(--color-accent-mint);
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+}
+
+/* Custom Premium Utilities */
+.glass-panel {
+  background: rgba(11, 43, 38, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(142, 182, 155, 0.15);
+}
+
+.glow-mint {
+  box-shadow: 0 0 20px rgba(214, 239, 226, 0.15);
+}
+
+.glow-red {
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.25);
+}
+
+.glow-text-mint {
+  text-shadow: 0 0 10px rgba(214, 239, 226, 0.4);
+}
+
+.glow-text-red {
+  text-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+}
+
+/* Scanline Effect */
+.scanline {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  background: linear-gradient(to bottom, rgba(214, 239, 226, 0), rgba(214, 239, 226, 0.15) 50%, rgba(214, 239, 226, 0) 100%);
+  animation: scan 6s linear infinite;
+  pointer-events: none;
+}
+
+/* Animated Grid Background */
+.grid-background {
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(142, 182, 155, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(142, 182, 155, 0.04) 1px, transparent 1px);
+  animation: gridMove 30s linear infinite;
+}
+
+/* Custom Scrollbar for Command Centers */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg-abyss);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-bg-pine);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-accent-sage);
+}
+
+/* Leaflet Map overrides for custom dark mode theme */
+.leaflet-container {
+  background: var(--color-bg-abyss) !important;
+}
+
+/* Dark themed Map Tiles filter */
+.dark-map-tiles {
+  filter: invert(100%) hue-rotate(180deg) brightness(85%) contrast(110%);
+}
+
+.leaflet-bar {
+  border: 1px solid rgba(142, 182, 155, 0.2) !important;
+  background-color: var(--color-bg-deep) !important;
+  box-shadow: none !important;
+}
+
+.leaflet-bar a {
+  background-color: var(--color-bg-deep) !important;
+  color: var(--color-accent-mint) !important;
+  border-bottom: 1px solid rgba(142, 182, 155, 0.2) !important;
+}
+
+.leaflet-bar a:hover {
+  background-color: var(--color-bg-pine) !important;
+  color: var(--color-accent-mint) !important;
+}
+
+.leaflet-popup-content-wrapper {
+  background: var(--color-bg-deep) !important;
+  color: var(--color-accent-mint) !important;
+  border: 1px solid rgba(142, 182, 155, 0.2) !important;
+  border-radius: 6px !important;
+  font-family: var(--font-sans) !important;
+}
+
+.leaflet-popup-tip {
+  background: var(--color-bg-deep) !important;
+  border: 1px solid rgba(142, 182, 155, 0.2) !important;
 }

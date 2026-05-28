@@ -113,3 +113,30 @@ export function earthquakeSeverity(magnitude: number): 'critical' | 'high' | 'me
   if (magnitude >= 3.0) return 'medium';
   return 'low';
 }
+
+/**
+ * Normalize USGS earthquake to Incident model format
+ */
+export function normalizeEarthquake(eq: USGSEarthquake): Partial<import('../../db/models').IIncident> {
+  const [lng, lat, depth] = eq.geometry.coordinates;
+  const severity = earthquakeSeverity(eq.properties.mag);
+  
+  return {
+    title: eq.properties.title,
+    type: 'earthquake',
+    severity,
+    status: 'active',
+    location: {
+      type: 'Point',
+      coordinates: [lng, lat],
+    },
+    description: `Magnitude ${eq.properties.mag} earthquake at ${eq.properties.place}.`,
+    source: 'usgs',
+    sourceId: eq.id,
+    magnitude: eq.properties.mag,
+    depth: depth,
+    tsunamiFlag: eq.properties.tsunami === 1,
+    createdAt: new Date(eq.properties.time),
+  };
+}
+

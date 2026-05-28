@@ -25,7 +25,7 @@ app.use(
   })
 );
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // Create HTTP and Socket.IO Server
 const httpServer = createServer(app);
@@ -119,6 +119,49 @@ app.get('/api/reports', async (req, res) => {
   }
 });
 
+// Get verification queue
+app.get('/api/reports/verification-queue', async (req, res) => {
+  try {
+    const reports = await Report.find().sort({ createdAt: -1 }).limit(50);
+    const reportIds = reports.map(r => r._id);
+    const scores = await import('./db/models').then(m => m.VerificationScore.find({ reportId: { $in: reportIds } }));
+    
+    const entries = reports.map(report => {
+      const score = scores.find(s => s.reportId.toString() === report._id.toString());
+      
+      const getStatus = (val: number | undefined) => {
+        if (val === undefined) return 'pending';
+        if (val > 0.8) return 'pass';
+        if (val > 0.4) return 'warning';
+        return 'fail';
+      };
+
+      return {
+        id: report._id.toString(),
+        reportTitle: `${report.type.toUpperCase()} - ${report.severity} Severity`,
+        type: report.type,
+        submittedBy: report.userId || 'anon',
+        submittedAt: report.createdAt.toISOString(),
+        status: report.verificationStatus,
+        credibilityScore: score?.overallScore || 0,
+        steps: [
+          { name: 'Temporal Analysis', status: getStatus(score?.timestampCheck), detail: 'Freshness Check' },
+          { name: 'Geospatial Check', status: getStatus(score?.gpsValidation), detail: 'Proximity Check' },
+          { name: 'Meteorological Validation', status: getStatus(score?.weatherConsistency), detail: 'Weather Check' },
+          { name: 'Satellite Correlation', status: getStatus(score?.satelliteCorrelation), detail: 'Global Agency Data' },
+          { name: 'Sentinel Vision AI', status: getStatus(score?.aiImageAnalysis), detail: 'Roboflow Damage Check' },
+          { name: 'LLM Logic Audit', status: getStatus(score?.aiContentAnalysis), detail: score?.reasoning || 'Groq AI Audit' },
+        ]
+      };
+    });
+    
+    res.json(entries);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to fetch verification queue' });
+  }
+});
+
 // Submit a new citizen report
 app.post('/api/reports', async (req, res) => {
   try {
@@ -140,17 +183,28 @@ app.post('/api/reports', async (req, res) => {
       isSOS: isSOS || false,
       verificationStatus: 'pending',
     });
-
     // Broadcast new report to dashboard instantly
     io.emit('report:new', report);
 
     // Trigger AI Verification pipeline asynchronously
     verifyReport(report._id as string)
-      .then((verificationResult) => {
+      .then(async (verificationResult) => {
         io.emit('report:verified', {
           reportId: report._id,
           result: verificationResult,
         });
+
+        // If verification created a new alert, broadcast it
+        if (verificationResult.classification === 'highly_reliable') {
+          const latestAlerts = await Alert.find({ isActive: true }).sort({ createdAt: -1 }).limit(20);
+          io.emit('alerts:update', latestAlerts);
+          
+          // Also refresh incidents for dashboard
+          const activeIncidents = await Incident.find({ status: { $in: ['active', 'monitoring'] } })
+            .sort({ createdAt: -1 })
+            .limit(100);
+          io.emit('incidents:live', activeIncidents);
+        }
       })
       .catch((err) => {
         console.error(`AI verification failed for report ${report._id}:`, err);
@@ -217,6 +271,23 @@ app.get('/api/shelters', async (req, res) => {
   }
 });
 
+// Get weather for location
+app.get('/api/weather', async (req, res) => {
+  try {
+    const lat = req.query.lat as string;
+    const lon = req.query.lon as string;
+    if (!lat || !lon) return res.status(400).json({ error: 'Missing lat/lon' });
+
+    const response = await fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m,weather_code`
+    );
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch weather' });
+  }
+});
+
 // Trigger full ingest job manually (Admin endpoint)
 app.post('/api/admin/ingest', async (req, res) => {
   try {
@@ -231,10 +302,14 @@ app.post('/api/admin/ingest', async (req, res) => {
 // Start Express Server
 async function startServer() {
   try {
-    await connectDB();
-
-    // Start cron background polling
-    initJobs(io);
+    try {
+      await connectDB();
+      // Start cron background polling only if DB connected successfully
+      initJobs(io);
+    } catch (dbError) {
+      console.error('⚠️ Failed to connect to MongoDB. Starting server in degraded mode. Please check your network or IP Whitelist in Atlas.');
+      console.error(dbError);
+    }
 
     httpServer.listen(PORT, () => {
       console.log(`🚀 Realtime Backend running on http://localhost:${PORT}`);

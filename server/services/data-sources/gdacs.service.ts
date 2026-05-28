@@ -189,3 +189,31 @@ export function gdacsSeverity(alertlevel: string): 'critical' | 'high' | 'medium
 export function mapGDACSType(eventtype: string): string {
   return GDACS_TYPE_MAP[eventtype] || 'industrial_hazard';
 }
+
+/**
+ * Normalize GDACS event to Incident model format
+ */
+export function normalizeGDACSEvent(feat: { properties: GDACSEvent; geometry?: { coordinates: [number, number] } }): Partial<import('../../db/models').IIncident> {
+  const event = feat.properties;
+  const severity = gdacsSeverity(event.alertlevel);
+  const type = mapGDACSType(event.eventtype) as any;
+  
+  const lng = feat.geometry?.coordinates?.[0] || event.geo?.lng || 0;
+  const lat = feat.geometry?.coordinates?.[1] || event.geo?.lat || 0;
+  
+  return {
+    title: event.eventname,
+    type,
+    severity,
+    status: 'active',
+    location: {
+      type: 'Point',
+      coordinates: [lng, lat],
+    },
+    description: event.description,
+    source: 'gdacs',
+    sourceId: `gdacs_${event.eventid}`,
+    affectedPopulation: event.population?.value,
+    createdAt: new Date(event.fromdate),
+  };
+}

@@ -112,3 +112,34 @@ export function mapReliefWebType(types: ReliefWebDisaster['fields']['type']): st
   if (!primaryType) return 'industrial_hazard';
   return RELIEFWEB_TYPE_MAP[primaryType.code] || 'industrial_hazard';
 }
+
+/**
+ * Normalize ReliefWeb disaster to Incident model format
+ */
+export function normalizeReliefWebDisaster(dis: ReliefWebDisaster): Partial<import('../../db/models').IIncident> {
+  const type = mapReliefWebType(dis.fields.type) as any;
+  
+  let lng = 0, lat = 0;
+  if (dis.fields.primary_country?.location) {
+    lng = dis.fields.primary_country.location.lon;
+    lat = dis.fields.primary_country.location.lat;
+  } else if (dis.fields.country?.[0]?.location) {
+    lng = dis.fields.country[0].location.lon;
+    lat = dis.fields.country[0].location.lat;
+  }
+
+  return {
+    title: dis.fields.name,
+    type,
+    severity: 'high',
+    status: 'active',
+    location: {
+      type: 'Point',
+      coordinates: [lng, lat],
+    },
+    description: dis.fields.description || dis.fields.name,
+    source: 'reliefweb',
+    sourceId: dis.id,
+    createdAt: new Date(dis.fields.date.created),
+  };
+}

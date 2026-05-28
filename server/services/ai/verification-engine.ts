@@ -1,7 +1,9 @@
 import mongoose from 'mongoose';
-import { Report, Incident, VerificationScore, IReport, CredibilityClassification } from '../../db/models';
+import { Report, Incident, Alert, VerificationScore, IReport, CredibilityClassification } from '../../db/models';
 import { fetchCurrentWeather } from '../data-sources/open-meteo-weather.service';
 import { askGroqJSON } from './groq-client';
+import { analyzeImage } from './vision-engine';
+import { calculateSpreadPrediction } from './spread-prediction';
 
 export interface VerificationResult {
   score: number; // 0 to 1
@@ -46,21 +48,34 @@ export async function verifyReport(reportId: string | mongoose.Types.ObjectId): 
   // Step 4: Satellite Correlation (NASA/USGS events within 50km in last 48 hours)
   const satelliteCorrelation = await runSatelliteCorrelation(report, lat, lng);
 
-  // Step 5: AI Content Analysis (using Groq)
-  const aiContentAnalysis = await runAIContentAnalysis(report, weatherConsistency, gpsValidation);
+  // Step 5: Sentinel Vision AI (Groq Vision) if media is present
+  let aiImageAnalysis = 0.5; // neutral fallback
+  let visionFlags: string[] = [];
+  let visionRawAnalysis = 'No media uploaded for vision analysis.';
+  if (report.mediaUrls && report.mediaUrls.length > 0) {
+    const visionResult = await analyzeImage(report.mediaUrls[0]);
+    aiImageAnalysis = visionResult.confidence;
+    visionFlags = visionResult.tags;
+    visionRawAnalysis = visionResult.rawAnalysis || 'Vision analysis completed.';
+    console.log(`[Verification Engine] Vision AI: confidence=${aiImageAnalysis}, tags=[${visionFlags.join(', ')}]`);
+  }
+
+  // Step 6: AI Content Analysis (using Groq LLM) - Cross-references vision tags
+  const aiContentAnalysis = await runAIContentAnalysis(report, weatherConsistency, gpsValidation, visionFlags);
 
   // Compute overall score with weighted averages
-  // Weights: timestamp 15%, GPS 20%, Weather 20%, Satellite 25%, Content 20%
+  // Weights: timestamp 10%, GPS 20%, Weather 15%, Satellite 20%, Content 20%, Vision 15%
   const overallScore =
-    timestampCheck * 0.15 +
+    timestampCheck * 0.10 +
     gpsValidation * 0.20 +
-    weatherConsistency * 0.20 +
-    satelliteCorrelation * 0.25 +
-    aiContentAnalysis.score * 0.20;
+    weatherConsistency * 0.15 +
+    satelliteCorrelation * 0.20 +
+    aiContentAnalysis.score * 0.20 +
+    aiImageAnalysis * 0.15;
 
   // Classify credibility level
   let classification: CredibilityClassification = 'needs_verification';
-  if (overallScore >= 0.85) classification = 'highly_reliable';
+  if (overallScore >= 0.80) classification = 'highly_reliable';
   else if (overallScore >= 0.65) classification = 'likely_true';
   else if (overallScore < 0.40) classification = 'suspicious';
 
@@ -70,6 +85,7 @@ export async function verifyReport(reportId: string | mongoose.Types.ObjectId): 
     ...(weatherConsistency < 0.3 ? ['INCONSISTENT_WEATHER_CONDITIONS'] : []),
     ...(satelliteCorrelation < 0.4 ? ['NO_SATELLITE_CONFIRMATION'] : []),
     ...aiContentAnalysis.flags,
+    ...visionFlags,
   ];
 
   const result: VerificationResult = {
@@ -93,7 +109,7 @@ export async function verifyReport(reportId: string | mongoose.Types.ObjectId): 
     gpsValidation: result.breakdown.gpsValidation,
     weatherConsistency: result.breakdown.weatherConsistency,
     satelliteCorrelation: result.breakdown.satelliteCorrelation,
-    aiImageAnalysis: report.mediaUrls && report.mediaUrls.length > 0 ? 0.75 : 0.5, // Seed image analysis if media exists
+    aiImageAnalysis,
     aiContentAnalysis: result.breakdown.aiContentAnalysis,
     overallScore: result.score,
     classification: result.classification,
@@ -105,14 +121,95 @@ export async function verifyReport(reportId: string | mongoose.Types.ObjectId): 
   const nearbyIncidents = await findNearbyIncidents(lat, lng, report.type, 10000); // 10km
   const matchedIncident = nearbyIncidents[0];
 
-  report.verificationStatus = 'verified';
+  if (result.classification === 'highly_reliable' || result.classification === 'likely_true') {
+    report.verificationStatus = 'verified';
+  } else if (result.classification === 'suspicious') {
+    report.verificationStatus = 'rejected';
+  } else {
+    report.verificationStatus = 'pending';
+  }
+  
   report.credibilityScore = result.score;
   report.credibilityClassification = result.classification;
   if (matchedIncident) {
     report.incidentId = matchedIncident._id as mongoose.Types.ObjectId;
+    
+    // Trigger Spread Prediction if it's a verifiable existing incident
+    if (result.classification === 'highly_reliable' || result.classification === 'likely_true') {
+      await calculateSpreadPrediction(matchedIncident, lat, lng);
+    }
+  } else if (result.classification === 'highly_reliable') {
+    // Escalate to new Incident
+    const newIncident = await Incident.create({
+      title: `${report.type.toUpperCase()} - Citizen Reported`,
+      type: report.type,
+      severity: report.severity,
+      status: 'active',
+      location: report.location,
+      description: report.description,
+      credibilityScore: result.score,
+      source: 'citizen_report',
+      sourceId: report._id.toString(),
+      mediaUrls: report.mediaUrls
+    });
+    report.incidentId = newIncident._id as mongoose.Types.ObjectId;
+    await calculateSpreadPrediction(newIncident, lat, lng);
   }
+
+  // Create an Alert for highly reliable verified reports so they appear in the Alerts Feed
+  if (result.classification === 'highly_reliable') {
+    try {
+      await Alert.create({
+        type: report.type,
+        severity: report.severity,
+        title: `⚠️ VERIFIED: ${report.type.toUpperCase()} reported by citizen`,
+        message: `A citizen report for ${report.type} has been AI-verified with a credibility score of ${(result.score * 100).toFixed(0)}%. Location: [${lat.toFixed(4)}, ${lng.toFixed(4)}]. ${report.description?.substring(0, 150) || ''}`,
+        source: 'aegis_ai_verification',
+        affectedRegion: report.address || `${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+        instructions: `This alert was automatically generated after AI verification confirmed the report. Credibility: ${result.classification}. Score: ${(result.score * 100).toFixed(0)}%.`,
+        isActive: true,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // Expires in 24 hours
+      });
+      console.log(`[Verification Engine] Alert created for verified report ${report._id}`);
+    } catch (alertErr) {
+      console.error('[Verification Engine] Failed to create alert:', alertErr);
+    }
+  }
+  
+  // Store detailed step-by-step analysis results
   report.aiAnalysisResults = {
-    contentAnalysis: result.reasoning,
+    contentAnalysis: [
+      `=== VERIFICATION SUMMARY ==="`,
+      `Overall Credibility Score: ${(result.score * 100).toFixed(1)}% (${result.classification})`,
+      ``,
+      `--- Step 1: Timestamp Validation ---`,
+      `Score: ${(result.breakdown.timestampCheck * 100).toFixed(1)}%`,
+      `Analysis: Report age evaluated. ${result.breakdown.timestampCheck >= 0.9 ? 'Report is very fresh (within 1 hour) — highly credible timing.' : result.breakdown.timestampCheck >= 0.7 ? 'Report submitted within last 24 hours — acceptable timing.' : 'Report is older — reduced timestamp credibility.'}`,
+      ``,
+      `--- Step 2: GPS Validation ---`,
+      `Score: ${(result.breakdown.gpsValidation * 100).toFixed(1)}%`,
+      `Analysis: ${result.breakdown.gpsValidation >= 0.8 ? 'Location matches or is near existing verified incidents — strong spatial correlation.' : result.breakdown.gpsValidation >= 0.5 ? 'Location is in a general area of activity but not confirmed.' : 'Isolated location — no nearby incidents corroborate this report.'}`,
+      ``,
+      `--- Step 3: Weather Consistency ---`,
+      `Score: ${(result.breakdown.weatherConsistency * 100).toFixed(1)}%`,
+      `Analysis: ${result.breakdown.weatherConsistency >= 0.7 ? 'Current weather conditions are consistent with the reported disaster type.' : result.breakdown.weatherConsistency >= 0.4 ? 'Weather conditions partially align with the disaster type.' : 'Weather conditions CONTRADICT the reported disaster type — suspicious.'}`,
+      ``,
+      `--- Step 4: Satellite Correlation ---`,
+      `Score: ${(result.breakdown.satelliteCorrelation * 100).toFixed(1)}%`,
+      `Analysis: ${result.breakdown.satelliteCorrelation >= 0.7 ? 'Satellite/agency data (NASA, USGS, GDACS) confirms activity in this region.' : result.breakdown.satelliteCorrelation >= 0.4 ? 'Some satellite data available but not a direct match.' : 'No satellite or agency confirmation found for this disaster in the area.'}`,
+      ``,
+      `--- Step 5: Vision AI Image Analysis ---`,
+      `Score: ${(aiImageAnalysis * 100).toFixed(1)}%`,
+      `Tags: ${visionFlags.length > 0 ? visionFlags.join(', ') : 'N/A'}`,
+      `Analysis: ${visionRawAnalysis}`,
+      ``,
+      `--- Step 6: AI Content Analysis (LLM) ---`,
+      `Score: ${(result.breakdown.aiContentAnalysis * 100).toFixed(1)}%`,
+      `Analysis: ${result.reasoning}`,
+      ``,
+      `--- Flags ---`,
+      result.flags.length > 0 ? result.flags.join(', ') : 'No flags raised.',
+    ].join('\n'),
     flags: result.flags,
   };
   await report.save();
@@ -272,28 +369,51 @@ async function runSatelliteCorrelation(report: IReport, lat: number, lng: number
 async function runAIContentAnalysis(
   report: IReport,
   weatherScore: number,
-  gpsScore: number
+  gpsScore: number,
+  visionTags: string[]
 ): Promise<{ score: number; reasoning: string; flags: string[] }> {
-  const systemPrompt = `
-You are the AI verification core for AEGIS AI. Your job is to analyze reports of disasters from citizens, evaluate their descriptions, and flag potential fake news, spam, or logic conflicts.
-Respond ONLY in JSON format containing:
-{
-  "score": number (decimal 0.0 to 1.0 indicating report detail relevance, logic soundness, and realism),
-  "flags": string[] (array of flags like SPAM, SENSATIONALIST, CONTRADICTORY, INSUFFICIENT_DETAIL, COHERENT),
-  "reasoning": string (1-2 sentences summarizing verification conclusions)
-}
-  `;
+  const systemPrompt = `You are the STRICT AI verification core for AEGIS AI — a disaster management platform. Your job is to rigorously analyze citizen disaster reports and flag ANY inconsistencies, fake data, or contradictions.
 
-  const userPrompt = `
-Evaluate the following citizen disaster report:
-Disaster Type: ${report.type}
-Severity Level: ${report.severity}
+CRITICAL RULES:
+1. CROSS-REFERENCE the declared Disaster Type with the Vision Tags. The Vision Tags tell you what our computer vision AI ACTUALLY SEES in the uploaded image. If the user says "drought" but the image tags include "flood", "water", "submerged" — this is a BLATANT CONTRADICTION. Score MUST be below 0.15.
+2. If Vision Tags include "AI_GENERATED_IMAGE", "unnatural_smoothness", "distorted_objects", or similar AI artifact indicators — the image is FAKE. Score MUST be below 0.10 and you MUST flag FAKE_MEDIA_DETECTED.
+3. If the description is vague, generic, or doesn't match the disaster type — penalize heavily.
+4. If weather validation score is very low (< 0.3), it means current weather CONTRADICTS the disaster type — factor this in.
+5. If GPS validation is very low (< 0.3), the location is isolated with no corroborating reports.
+
+Scoring guidelines:
+- 0.90-1.00: Everything aligns perfectly — description, image, weather, location all consistent
+- 0.70-0.89: Mostly consistent with minor concerns
+- 0.40-0.69: Significant concerns or missing data
+- 0.15-0.39: Major contradictions detected
+- 0.00-0.14: Clearly fake, AI-generated image, or completely contradictory data
+
+Respond ONLY in valid JSON:
+{
+  "score": number (0.0 to 1.0),
+  "flags": string[] (from: SPAM, SENSATIONALIST, CONTRADICTORY, INSUFFICIENT_DETAIL, COHERENT, FAKE_MEDIA_DETECTED, IMAGE_DISASTER_MISMATCH, WEATHER_MISMATCH, LOCATION_UNVERIFIED, AI_GENERATED_CONTENT),
+  "reasoning": string (DETAILED 3-5 sentence analysis. MUST explicitly state what the image shows vs what was reported. MUST explain any contradictions found. MUST mention if image appears AI-generated.)
+}`;
+
+  const userPrompt = `Rigorously evaluate this citizen disaster report for authenticity:
+
+== REPORT DATA ==
+Disaster Type Claimed: ${report.type}
+Severity Level Claimed: ${report.severity}
 Description: "${report.description}"
-Location GPS Validation Score (0-1): ${gpsScore}
-Location Weather Validation Score (0-1): ${weatherScore}
+
+== VALIDATION SCORES FROM OTHER STEPS ==
+GPS Location Validation Score: ${gpsScore.toFixed(2)} (1.0 = confirmed location, 0.3 = isolated/unverified)
+Weather Consistency Score: ${weatherScore.toFixed(2)} (1.0 = weather matches disaster type, 0.1 = weather contradicts)
+
+== IMAGE ANALYSIS ==
 Has Media Uploaded: ${report.mediaUrls && report.mediaUrls.length > 0 ? 'Yes' : 'No'}
-Is SOS Call: ${report.isSOS ? 'Yes' : 'No'}
-  `;
+Vision AI Tags (what computer vision ACTUALLY SEES in the image): ${visionTags.length > 0 ? visionTags.join(', ') : 'No image uploaded or analysis unavailable'}
+
+== METADATA ==
+Is SOS Emergency Call: ${report.isSOS ? 'Yes' : 'No'}
+
+Based on ALL the above data, provide your score, flags, and detailed reasoning. Pay special attention to any mismatch between the claimed disaster type and what the Vision AI tags show in the image.`;
 
   const fallback = {
     score: 0.7,

@@ -132,3 +132,37 @@ export function eonetSeverity(event: EONETEvent): 'critical' | 'high' | 'medium'
   if (mag > 10) return 'medium';
   return 'low';
 }
+
+/**
+ * Normalize EONET event to Incident model format
+ */
+export function normalizeEONETEvent(event: EONETEvent): Partial<import('../../db/models').IIncident> {
+  const type = mapEONETCategory(event.categories) as any;
+  const severity = eonetSeverity(event);
+  
+  let lng = 0, lat = 0;
+  for (const geo of event.geometry) {
+    if (geo.type === 'Point' && Array.isArray(geo.coordinates) && geo.coordinates.length >= 2) {
+      if (typeof geo.coordinates[0] === 'number') {
+         lng = geo.coordinates[0];
+         lat = geo.coordinates[1];
+         break;
+      }
+    }
+  }
+
+  return {
+    title: event.title,
+    type,
+    severity,
+    status: 'active',
+    location: {
+      type: 'Point',
+      coordinates: [lng, lat],
+    },
+    description: event.description || event.title,
+    source: 'nasa_eonet',
+    sourceId: event.id,
+    createdAt: new Date(event.geometry[0]?.date || Date.now()),
+  };
+}

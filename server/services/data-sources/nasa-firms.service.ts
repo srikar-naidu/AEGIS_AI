@@ -152,3 +152,29 @@ export function normalizeFireConfidence(confidence: string | number): number {
       return 0.5;
   }
 }
+
+/**
+ * Normalize FIRMS hotspot to Incident model format
+ */
+export function normalizeFireHotspot(fire: FIRMSHotspot): Partial<import('../../db/models').IIncident> {
+  const severity = fireSeverity(fire.brightness);
+  const confidence = normalizeFireConfidence(fire.confidence) * 100;
+  
+  return {
+    title: `Wildfire Hotspot [${fire.latitude.toFixed(2)}, ${fire.longitude.toFixed(2)}] - ${fire.satellite}`,
+    type: 'wildfire',
+    severity,
+    status: 'active',
+    location: {
+      type: 'Point',
+      coordinates: [fire.longitude, fire.latitude],
+    },
+    description: `Satellite detected fire hotspot. Brightness: ${fire.brightness}K, FRP: ${fire.frp}MW.`,
+    source: 'nasa_firms',
+    sourceId: `firms_${fire.latitude}_${fire.longitude}_${fire.acq_date}`,
+    brightness: fire.brightness,
+    confidence,
+    createdAt: new Date(`${fire.acq_date}T00:00:00Z`),
+  };
+}
+

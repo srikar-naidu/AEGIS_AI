@@ -44,16 +44,16 @@ export const USER_ROLES = ['citizen', 'responder', 'admin'] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
 // GeoJSON Point schema for reuse
-const GeoPointSchema = {
+const GeoPointSchema = new Schema({
   type: { type: String, enum: ['Point'], default: 'Point' },
   coordinates: { type: [Number], required: true }, // [longitude, latitude]
-};
+}, { _id: false });
 
 // GeoJSON Polygon schema for reuse
-const GeoPolygonSchema = {
+const GeoPolygonSchema = new Schema({
   type: { type: String, enum: ['Polygon'], default: 'Polygon' },
   coordinates: { type: [[[Number]]], required: true },
-};
+}, { _id: false });
 
 // ============================================
 // Incident Model
