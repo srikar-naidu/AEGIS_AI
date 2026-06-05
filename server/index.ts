@@ -4,14 +4,43 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
+import { v2 as cloudinary } from 'cloudinary';
 
 // Load environment variables
-dotenv.config({ path: path.join(__dirname, '../.env.local') });
+dotenv.config({ path: path.join(__dirname, '../.env.local'), override: true });
 
 import { connectDB } from './db/connection';
 import { initJobs } from './jobs/data-poller';
 import { Incident, Report, RescueTeam, Shelter, Alert } from './db/models';
 import { verifyReport } from './services/ai/verification-engine';
+
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+/**
+ * Upload a base64 data URI to Cloudinary and return the secure HTTPS URL.
+ * If the input is already an HTTPS URL, return it as-is.
+ */
+async function uploadToCloudinary(dataUri: string): Promise<string> {
+  if (dataUri.startsWith('http://') || dataUri.startsWith('https://')) {
+    return dataUri; // Already a URL
+  }
+  try {
+    const result = await cloudinary.uploader.upload(dataUri, {
+      folder: 'aegis-reports',
+      resource_type: 'auto',
+    });
+    console.log(`[Cloudinary] Uploaded image: ${result.secure_url}`);
+    return result.secure_url;
+  } catch (err) {
+    console.error('[Cloudinary] Upload failed:', err);
+    return dataUri; // Fallback to original
+  }
+}
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -63,7 +92,7 @@ async function sendInitialData(socket: any) {
   try {
     const activeIncidents = await Incident.find({ status: { $in: ['active', 'monitoring'] } })
       .sort({ createdAt: -1 })
-      .limit(100);
+      .limit(500);
 
     const activeAlerts = await Alert.find({ isActive: true })
       .sort({ createdAt: -1 })
@@ -102,7 +131,7 @@ app.get('/api/incidents', async (req, res) => {
     if (type) query.type = type;
     if (severity) query.severity = severity;
 
-    const list = await Incident.find(query).sort({ createdAt: -1 }).limit(100);
+    const list = await Incident.find(query).sort({ createdAt: -1 }).limit(500);
     res.json(list);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch incidents' });
@@ -136,6 +165,8 @@ app.get('/api/reports/verification-queue', async (req, res) => {
         return 'fail';
       };
 
+      const pct = (v: number | undefined) => v !== undefined ? `${(v * 100).toFixed(0)}%` : '—';
+
       return {
         id: report._id.toString(),
         reportTitle: `${report.type.toUpperCase()} - ${report.severity} Severity`,
@@ -144,13 +175,16 @@ app.get('/api/reports/verification-queue', async (req, res) => {
         submittedAt: report.createdAt.toISOString(),
         status: report.verificationStatus,
         credibilityScore: score?.overallScore || 0,
+        reasoning: score?.reasoning || '',
+        flags: score?.flags || [],
+        detailedReport: report.aiAnalysisResults?.contentAnalysis || '',
         steps: [
-          { name: 'Temporal Analysis', status: getStatus(score?.timestampCheck), detail: 'Freshness Check' },
-          { name: 'Geospatial Check', status: getStatus(score?.gpsValidation), detail: 'Proximity Check' },
-          { name: 'Meteorological Validation', status: getStatus(score?.weatherConsistency), detail: 'Weather Check' },
-          { name: 'Satellite Correlation', status: getStatus(score?.satelliteCorrelation), detail: 'Global Agency Data' },
-          { name: 'Sentinel Vision AI', status: getStatus(score?.aiImageAnalysis), detail: 'Roboflow Damage Check' },
-          { name: 'LLM Logic Audit', status: getStatus(score?.aiContentAnalysis), detail: score?.reasoning || 'Groq AI Audit' },
+          { name: 'GPS Validation', status: getStatus(score?.gpsValidation), detail: `Score: ${pct(score?.gpsValidation)} — Location proximity check` },
+          { name: 'Timestamp', status: getStatus(score?.timestampCheck), detail: `Score: ${pct(score?.timestampCheck)} — Report freshness` },
+          { name: 'Weather Match', status: getStatus(score?.weatherConsistency), detail: `Score: ${pct(score?.weatherConsistency)} — Live weather vs disaster type` },
+          { name: 'Satellite Data', status: getStatus(score?.satelliteCorrelation), detail: `Score: ${pct(score?.satelliteCorrelation)} — NASA/USGS/GDACS correlation` },
+          { name: 'Image Analysis', status: getStatus(score?.aiImageAnalysis), detail: `Score: ${pct(score?.aiImageAnalysis)} — Groq Vision AI forensics` },
+          { name: 'Metadata Audit', status: getStatus(score?.aiContentAnalysis), detail: `Score: ${pct(score?.aiContentAnalysis)} — Description & content quality` },
         ]
       };
     });
@@ -171,6 +205,16 @@ app.post('/api/reports', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    // Upload any base64 images to Cloudinary to get proper HTTPS URLs
+    let processedMediaUrls: string[] = [];
+    if (mediaUrls && mediaUrls.length > 0) {
+      console.log(`[Report] Uploading ${mediaUrls.length} media file(s) to Cloudinary...`);
+      processedMediaUrls = await Promise.all(
+        mediaUrls.map((url: string) => uploadToCloudinary(url))
+      );
+      console.log(`[Report] Cloudinary upload complete. URLs:`, processedMediaUrls.map((u: string) => u.substring(0, 60)));
+    }
+
     const report = await Report.create({
       userId,
       type,
@@ -178,7 +222,7 @@ app.post('/api/reports', async (req, res) => {
       location,
       address,
       description,
-      mediaUrls,
+      mediaUrls: processedMediaUrls,
       emergencyContact,
       isSOS: isSOS || false,
       verificationStatus: 'pending',

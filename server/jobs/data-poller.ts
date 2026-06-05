@@ -96,10 +96,10 @@ async function pollFires() {
     const rawFires = await fetchActiveFiresCsv();
     let updatedCount = 0;
 
-    // FIRMS can return thousands. Take top 150 significant ones
+    // FIRMS can return thousands. Take top 50 significant ones to avoid overshadowing other disasters
     const topFires = rawFires
       .sort((a, b) => b.frp - a.frp)
-      .slice(0, 150);
+      .slice(0, 50);
 
     for (const fire of topFires) {
       const normalized = normalizeFireHotspot(fire);
@@ -217,7 +217,7 @@ async function broadcastIncidentsUpdate() {
   try {
     const activeIncidents = await Incident.find({ status: { $in: ['active', 'monitoring'] } })
       .sort({ createdAt: -1 })
-      .limit(100);
+      .limit(500);
 
     ioInstance.emit('incidents:live', activeIncidents);
   } catch (error) {
