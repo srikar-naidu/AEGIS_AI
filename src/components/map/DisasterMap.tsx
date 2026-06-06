@@ -227,21 +227,47 @@ export default function DisasterMap({
 
         {/* Render Evacuation Routes */}
         {evacuationRoutes && evacuationRoutes.map((route, idx) => {
-          const color = route.status === 'SAFE' ? '#3B82F6'
+          const color = route.status === 'SAFE' ? '#06b6d4' // Using cyan for safer glow
             : route.status === 'CAUTION' ? '#F59E0B'
             : '#EF4444';
           const positions: [number, number][] = route.geometry.map(c => [c[1], c[0]]); // [lng,lat] -> [lat,lng]
           return (
-            <Polyline
-              key={`evac-${idx}`}
-              positions={positions}
-              pathOptions={{
-                color,
-                weight: route.rank === 1 ? 5 : 3,
-                opacity: route.rank === 1 ? 0.9 : 0.5,
-                dashArray: route.rank === 1 ? undefined : '10, 6',
-              }}
-            />
+            <React.Fragment key={`evac-${idx}`}>
+              {/* Glow Layer (Thick, low opacity) */}
+              <Polyline
+                positions={positions}
+                pathOptions={{
+                  color,
+                  weight: route.rank === 1 ? 16 : 10,
+                  opacity: route.rank === 1 ? 0.4 : 0.25,
+                  lineCap: 'round',
+                  lineJoin: 'round',
+                }}
+              />
+              {/* Core Layer (Thin, high opacity bright center) */}
+              <Polyline
+                positions={positions}
+                pathOptions={{
+                  color: route.rank === 1 ? '#FFFFFF' : color,
+                  weight: route.rank === 1 ? 4 : 2,
+                  opacity: route.rank === 1 ? 1.0 : 0.8,
+                  dashArray: route.rank === 1 ? undefined : '10, 8',
+                  lineCap: 'round',
+                  lineJoin: 'round',
+                }}
+              >
+                <Popup>
+                  <div className="font-mono text-[10px] space-y-1 w-40">
+                    <div className="font-bold text-accent-mint">{route.name}</div>
+                    <div className="text-[9px] text-accent-sage/80">DESTINATION: {route.type}</div>
+                    <div className="text-[9px] border-t border-accent-sage/10 pt-1 mt-1">
+                      DISTANCE: {route.routeDistance}<br/>
+                      ETA: {route.eta}
+                    </div>
+                  </div>
+                </Popup>
+              </Polyline>
+            </React.Fragment>
           );
         })}
       </MapContainer>

@@ -44,9 +44,9 @@ export function HeroSection() {
           transition={{ duration: 0.6, delay: 0.1 }}
           className="text-4xl sm:text-6xl font-black tracking-tight leading-[1.1] font-heading"
         >
-          <GradientText variant="mint-sage">Verified Disaster Intelligence</GradientText>
+          <GradientText variant="mint-sage">AEGIS AI</GradientText>
           <br />
-          <span className="text-accent-mint">for Faster Emergency Response</span>
+          <span className="text-accent-mint">AI-powered disaster intelligence and rescue coordination system</span>
         </motion.h1>
 
         {/* Subtext */}
