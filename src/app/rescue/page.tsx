@@ -92,26 +92,17 @@ export default function RescuePage() {
         setIncidents(active);
       })
       .catch(console.error);
-
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          if (!searchCenter) {
-            setSearchCenter({
-              lat: position.coords.latitude,
-              lng: position.coords.longitude
-            });
-          }
-        },
-        () => console.warn('Geolocation blocked or failed')
-      );
-    }
   }, []);
 
   useEffect(() => {
     if (selectedIncident) {
       const [lng, lat] = selectedIncident.location.coordinates;
       setSearchCenter({ lat, lng });
+    } else {
+      // Clear resources and search center when deselecting
+      setSearchCenter(null);
+      setResources([]);
+      setEvacRoutes([]);
     }
   }, [selectedIncident]);
 
@@ -184,28 +175,23 @@ export default function RescuePage() {
               
               {/* Location Controls */}
               <div className="mb-2">
-                <label className="text-[10px] text-accent-sage/60 uppercase tracking-widest block mb-1">Center Operations On:</label>
+                <label className="text-[10px] text-accent-sage/60 uppercase tracking-widest block mb-1">Select Disaster to Deploy Resources:</label>
                 <select 
                   className="w-full bg-bg-deep border border-accent-sage/20 rounded p-1.5 text-xs text-accent-sage font-mono focus:border-accent-mint/50 focus:outline-none"
-                  value={selectedIncident ? selectedIncident._id : 'user-loc'}
+                  value={selectedIncident ? selectedIncident._id : ''}
                   onChange={(e) => {
-                    if (e.target.value === 'user-loc') {
+                    if (e.target.value === '') {
                       setSelectedIncident(null);
-                      if (navigator.geolocation) {
-                        navigator.geolocation.getCurrentPosition(pos => {
-                          setSearchCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-                        });
-                      }
                     } else {
                       const inc = incidents.find(i => i._id === e.target.value);
                       if (inc) setSelectedIncident(inc);
                     }
                   }}
                 >
-                  <option value="user-loc">My Current Location (GPS)</option>
+                  <option value="">— Click a disaster on the map —</option>
                   {incidents.map(inc => (
                     <option key={inc._id} value={inc._id}>
-                      Incident: {inc.title} ({inc.severity})
+                      {inc.title} ({inc.severity})
                     </option>
                   ))}
                 </select>
@@ -278,7 +264,19 @@ export default function RescuePage() {
               {/* ===== RESOURCES TAB ===== */}
               {activeTab === 'resources' && (
                 <>
-                  {isLoading ? (
+                  {!selectedIncident ? (
+                    <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                      <div className="w-12 h-12 rounded-full border-2 border-dashed border-accent-sage/20 flex items-center justify-center mb-4">
+                        <Crosshair className="h-5 w-5 text-accent-sage/40" />
+                      </div>
+                      <p className="text-[11px] font-mono text-accent-sage/60 uppercase tracking-wider mb-2">
+                        No Disaster Selected
+                      </p>
+                      <p className="text-[10px] font-mono text-accent-sage/40 leading-relaxed">
+                        Click a disaster marker on the map or select one from the dropdown above to load nearby rescue resources.
+                      </p>
+                    </div>
+                  ) : isLoading ? (
                     <div className="flex flex-col items-center justify-center py-10 text-accent-sage/50">
                       <Loader2 className="h-6 w-6 animate-spin mb-2" />
                       <span className="text-[10px] font-mono tracking-widest uppercase">Aggregating APIs...</span>
@@ -339,7 +337,19 @@ export default function RescuePage() {
               {/* ===== EVACUATION TAB ===== */}
               {activeTab === 'evacuation' && (
                 <>
-                  {isLoadingEvac ? (
+                  {!selectedIncident ? (
+                    <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                      <div className="w-12 h-12 rounded-full border-2 border-dashed border-accent-sage/20 flex items-center justify-center mb-4">
+                        <Route className="h-5 w-5 text-accent-sage/40" />
+                      </div>
+                      <p className="text-[11px] font-mono text-accent-sage/60 uppercase tracking-wider mb-2">
+                        No Disaster Selected
+                      </p>
+                      <p className="text-[10px] font-mono text-accent-sage/40 leading-relaxed">
+                        Click a disaster marker on the map or select one from the dropdown to generate evacuation routes.
+                      </p>
+                    </div>
+                  ) : isLoadingEvac ? (
                     <div className="flex flex-col items-center justify-center py-10 text-accent-sage/50">
                       <Loader2 className="h-6 w-6 animate-spin mb-2" />
                       <span className="text-[10px] font-mono tracking-widest uppercase">Generating safe routes via OSRM...</span>
