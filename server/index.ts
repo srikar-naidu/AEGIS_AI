@@ -14,7 +14,8 @@ import { initJobs } from './jobs/data-poller';
 import { Incident, Report, RescueTeam, Shelter, Alert } from './db/models';
 import { verifyReport } from './services/ai/verification-engine';
 import { fetchOSMResources, fetchReliefWebOrgs } from './services/rescue/aggregation-engine';
-import { enrichWithRoutes } from './services/rescue/routing-engine';
+import { enrichWithRoutes, generateEvacuationRoutes, HazardZone } from './services/rescue/routing-engine';
+import { generatePredictiveIntelligence } from './services/ai/predictive-engine';
 
 // Configure Cloudinary
 cloudinary.config({
@@ -333,6 +334,76 @@ app.get('/api/rescue/resources', async (req, res) => {
   }
 });
 
+// Generate safe evacuation routes with hazard avoidance
+app.get('/api/rescue/evacuation-routes', async (req, res) => {
+  try {
+    const { lat, lng, radius, topN } = req.query;
+    if (!lat || !lng) {
+      return res.status(400).json({ error: 'lat and lng are required' });
+    }
+    const latitude = parseFloat(lat as string);
+    const longitude = parseFloat(lng as string);
+    const searchRadius = radius ? parseInt(radius as string) : 10000;
+    const top = topN ? parseInt(topN as string) : 5;
+
+    // 1. Fetch resources from OSM
+    const osmResources = await fetchOSMResources(latitude, longitude, searchRadius);
+
+    if (osmResources.length === 0) {
+      return res.json({ routes: [], message: 'No verified emergency resource available from connected data sources.' });
+    }
+
+    // 2. Fetch active hazard zones from database (Incidents with dangerZone polygons + Alerts with affectedArea)
+    const hazardZones: HazardZone[] = [];
+
+    const activeIncidents = await Incident.find({
+      status: { $in: ['active', 'monitoring'] },
+      dangerZone: { $exists: true, $ne: null },
+    }).lean();
+
+    activeIncidents.forEach((inc: any) => {
+      if (inc.dangerZone && inc.dangerZone.coordinates) {
+        hazardZones.push({
+          id: inc._id.toString(),
+          type: inc.type || 'hazard',
+          polygon: inc.dangerZone.coordinates,
+          source: 'incident',
+        });
+      }
+    });
+
+    const activeAlerts = await Alert.find({
+      isActive: true,
+      affectedArea: { $exists: true, $ne: null },
+    }).lean();
+
+    activeAlerts.forEach((alert: any) => {
+      if (alert.affectedArea && alert.affectedArea.coordinates) {
+        hazardZones.push({
+          id: alert._id.toString(),
+          type: alert.type || 'hazard',
+          polygon: alert.affectedArea.coordinates,
+          source: 'alert',
+        });
+      }
+    });
+
+    console.log(`[RescueOps] Evacuation: ${osmResources.length} resources, ${hazardZones.length} hazard zones`);
+
+    // 3. Generate scored evacuation routes
+    const routes = await generateEvacuationRoutes(latitude, longitude, osmResources, hazardZones, top);
+
+    if (routes.length === 0) {
+      return res.json({ routes: [], message: 'No verified safe evacuation route available. Manual coordination required.' });
+    }
+
+    res.json({ routes, hazardZoneCount: hazardZones.length });
+  } catch (error) {
+    console.error('Error in /api/rescue/evacuation-routes:', error);
+    res.status(500).json({ error: 'Failed to generate evacuation routes' });
+  }
+});
+
 // Get shelters
 app.get('/api/shelters', async (req, res) => {
   try {
@@ -340,6 +411,26 @@ app.get('/api/shelters', async (req, res) => {
     res.json(list);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch shelters' });
+  }
+});
+
+// Get predictive intelligence forecast
+app.get('/api/predictive/forecast', async (req, res) => {
+  try {
+    const lat = req.query.lat as string;
+    const lng = req.query.lng as string;
+    if (!lat || !lng) {
+      return res.status(400).json({ error: 'lat and lng parameters are required' });
+    }
+    
+    const latitude = parseFloat(lat);
+    const longitude = parseFloat(lng);
+    const forecast = await generatePredictiveIntelligence(latitude, longitude);
+    
+    res.json(forecast);
+  } catch (error) {
+    console.error('Error generating predictive forecast:', error);
+    res.status(500).json({ error: 'Failed to generate forecast' });
   }
 });
 

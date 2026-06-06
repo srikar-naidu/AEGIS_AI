@@ -19,7 +19,7 @@ export function Navbar() {
     { name: 'Rescue Ops', href: '/rescue', icon: Activity },
     { name: 'Alerts', href: '/alerts', icon: FileText },
     { name: 'Sentinel Vision', href: '/sentinel-vision', icon: FileText },
-    { name: 'Analytics', href: '/analytics', icon: BarChart3 },
+    { name: 'Predictive', href: '/predictive', icon: BarChart3 },
     { name: 'Admin', href: '/admin', icon: Settings },
   ];
 

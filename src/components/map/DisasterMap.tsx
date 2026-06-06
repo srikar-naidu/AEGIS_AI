@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Circle, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Circle, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Incident, Shelter, RescueTeam } from '../../lib/types/incidents';
@@ -21,6 +21,12 @@ interface DisasterMapProps {
     dangerZones: boolean;
     routes: boolean;
   };
+  evacuationRoutes?: {
+    geometry: number[][];
+    status: 'SAFE' | 'CAUTION' | 'UNSAFE';
+    name: string;
+    rank: number;
+  }[];
 }
 
 // Map Adjuster to programmatically pan/zoom when selected incident changes
@@ -41,6 +47,7 @@ export default function DisasterMap({
   selectedIncident,
   onSelectIncident,
   activeLayers,
+  evacuationRoutes,
 }: DisasterMapProps) {
   const [isMounted, setIsMounted] = useState(false);  
   const mapRef = useRef<L.Map>(null);
@@ -217,6 +224,26 @@ export default function DisasterMap({
               </Marker>
             );
           })}
+
+        {/* Render Evacuation Routes */}
+        {evacuationRoutes && evacuationRoutes.map((route, idx) => {
+          const color = route.status === 'SAFE' ? '#3B82F6'
+            : route.status === 'CAUTION' ? '#F59E0B'
+            : '#EF4444';
+          const positions: [number, number][] = route.geometry.map(c => [c[1], c[0]]); // [lng,lat] -> [lat,lng]
+          return (
+            <Polyline
+              key={`evac-${idx}`}
+              positions={positions}
+              pathOptions={{
+                color,
+                weight: route.rank === 1 ? 5 : 3,
+                opacity: route.rank === 1 ? 0.9 : 0.5,
+                dashArray: route.rank === 1 ? undefined : '10, 6',
+              }}
+            />
+          );
+        })}
       </MapContainer>
     </div>
   );
