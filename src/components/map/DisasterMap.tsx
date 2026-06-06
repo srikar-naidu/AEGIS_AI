@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Circle, Polyline, useMap } from 'react-leaflet';
+import React, { useEffect, useState, useRef } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, Circle, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Incident, Shelter, RescueTeam } from '../../lib/types/incidents';
 import { getDisasterConfig } from '../../lib/constants/disaster-types';
+import { Layers, Loader2, Calendar } from 'lucide-react';
 
 interface DisasterMapProps {
   incidents: Incident[];
@@ -41,7 +42,8 @@ export default function DisasterMap({
   onSelectIncident,
   activeLayers,
 }: DisasterMapProps) {
-  const [isMounted, setIsMounted] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);  
+  const mapRef = useRef<L.Map>(null);
 
   useEffect(() => {
     setIsMounted(true);
@@ -54,6 +56,7 @@ export default function DisasterMap({
       </div>
     );
   }
+
 
   // Create custom neon div-icons for disasters
   const createDisasterIcon = (type: string, severity: string) => {
@@ -81,7 +84,6 @@ export default function DisasterMap({
     });
   };
 
-  // Create shelter icons
   const shelterIcon = L.divIcon({
     html: `
       <div class="relative flex items-center justify-center w-8 h-8">
@@ -95,7 +97,6 @@ export default function DisasterMap({
     iconAnchor: [16, 16],
   });
 
-  // Create rescue team icons
   const rescueTeamIcon = L.divIcon({
     html: `
       <div class="relative flex items-center justify-center w-8 h-8">
@@ -115,21 +116,22 @@ export default function DisasterMap({
 
   return (
     <div className="w-full h-full relative">
+
       <MapContainer
-        center={[20.5937, 78.9629]} // Default centered on India/Global
+        center={[20.5937, 78.9629]}
         zoom={5}
         zoomControl={false}
         className="w-full h-full z-10"
+        ref={mapRef}
       >
-        {/* Recenter triggers */}
         <MapRecenter coords={recenterCoords} />
 
-        {/* TileLayer with inversion filters applied in CSS for custom dark theme */}
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           className="dark-map-tiles"
         />
+
 
         {/* Render Disasters/Incidents */}
         {activeLayers.incidents &&
@@ -142,9 +144,7 @@ export default function DisasterMap({
                 <Marker
                   position={coords}
                   icon={createDisasterIcon(inc.type, inc.severity)}
-                  eventHandlers={{
-                    click: () => onSelectIncident(inc),
-                  }}
+                  eventHandlers={{ click: () => onSelectIncident(inc) }}
                 >
                   <Popup>
                     <div className="p-1 space-y-1.5 font-mono text-[10px] w-48">
@@ -158,40 +158,22 @@ export default function DisasterMap({
                         </span>
                       </div>
                       {inc.description && <p className="text-accent-sage/80 leading-normal">{inc.description}</p>}
-                      {inc.credibilityScore !== undefined && (
-                        <div className="text-[9px] text-success-green border-t border-accent-sage/10 pt-1">
-                          CREDIBILITY: {Math.round(inc.credibilityScore * 100)}%
-                        </div>
-                      )}
                     </div>
                   </Popup>
                 </Marker>
 
-                {/* Render danger zone radius circle for active alerts */}
                 {activeLayers.dangerZones && inc.severity === 'critical' && (
                   <Circle
                     center={coords}
-                    radius={15000} // 15km
-                    pathOptions={{
-                      color: '#EF4444',
-                      fillColor: '#EF4444',
-                      fillOpacity: 0.1,
-                      weight: 1,
-                      dashArray: '5, 5',
-                    }}
+                    radius={15000}
+                    pathOptions={{ color: '#EF4444', fillColor: '#EF4444', fillOpacity: 0.1, weight: 1, dashArray: '5, 5' }}
                   />
                 )}
                 {activeLayers.dangerZones && inc.severity === 'high' && (
                   <Circle
                     center={coords}
-                    radius={8000} // 8km
-                    pathOptions={{
-                      color: '#F97316',
-                      fillColor: '#F97316',
-                      fillOpacity: 0.08,
-                      weight: 1,
-                      dashArray: '5, 5',
-                    }}
+                    radius={8000}
+                    pathOptions={{ color: '#F97316', fillColor: '#F97316', fillOpacity: 0.08, weight: 1, dashArray: '5, 5' }}
                   />
                 )}
               </React.Fragment>
@@ -201,10 +183,7 @@ export default function DisasterMap({
         {/* Render Shelters */}
         {activeLayers.shelters &&
           shelters.map((shelter) => {
-            const coords: [number, number] = [
-              shelter.location.coordinates[1],
-              shelter.location.coordinates[0],
-            ];
+            const coords: [number, number] = [shelter.location.coordinates[1], shelter.location.coordinates[0]];
             return (
               <Marker key={shelter._id || shelter.id} position={coords} icon={shelterIcon}>
                 <Popup>
@@ -223,10 +202,7 @@ export default function DisasterMap({
         {/* Render Rescue Teams */}
         {activeLayers.rescueTeams &&
           rescueTeams.map((team) => {
-            const coords: [number, number] = [
-              team.currentLocation.coordinates[1],
-              team.currentLocation.coordinates[0],
-            ];
+            const coords: [number, number] = [team.currentLocation.coordinates[1], team.currentLocation.coordinates[0]];
             return (
               <Marker key={team._id || team.id} position={coords} icon={rescueTeamIcon}>
                 <Popup>

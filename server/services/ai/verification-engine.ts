@@ -303,42 +303,115 @@ export async function verifyReport(reportId: string | mongoose.Types.ObjectId): 
 
   let clipDataString = 'No CLIP data available.';
   if (imageUrl) {
-    try {
-      console.log(`[AEGIS AI] Calling Roboflow CLIP for image analysis... URL: ${imageUrl.substring(0, 50)}...`);
-      const classes = [...new Set([report.type, 'flood', 'wildfire', 'earthquake damage', 'drought', 'storm', 'cyclone', 'normal clear scene', 'building debris', 'heavy smoke'])];
-      
-      let subjectPayload: any = { type: "url", value: imageUrl };
-      if (imageUrl.startsWith('data:image/')) {
-        const base64Data = imageUrl.split(',')[1];
-        subjectPayload = { type: "base64", value: base64Data };
+    // CRITICAL FIX: Roboflow CLIP API throws 500 Internal Error if prompt array has > 8 classes.
+    const classes = [...new Set([report.type, 'flood', 'wildfire', 'earthquake damage', 'drought', 'storm', 'cyclone', 'normal clear scene', 'building debris', 'heavy smoke'])].slice(0, 8);
+    const roboflowApiKey = process.env.ROBOFLOW_API_KEY || '21IpOwYOPyTyHWw6in1p';
+
+    /**
+     * Helper: call Roboflow CLIP with a given subject payload.
+     * Returns the mapped similarity scores or null on failure.
+     */
+    async function callClip(payload: any, label: string): Promise<Record<string, number> | null> {
+      try {
+        console.log(`[AEGIS AI] CLIP attempt (${label})...`);
+        const clipResponse = await fetch(`https://infer.roboflow.com/clip/compare?api_key=${roboflowApiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subject: payload,
+            subject_type: "image",
+            prompt: classes
+          })
+        });
+        if (clipResponse.ok) {
+          const clipData = await clipResponse.json();
+          console.log(`[AEGIS AI] CLIP (${label}) raw response:`, JSON.stringify(clipData).substring(0, 200));
+          if (clipData.similarity && clipData.similarity.length === classes.length) {
+            const mapped: Record<string, number> = {};
+            classes.forEach((c, idx) => { mapped[c] = clipData.similarity[idx]; });
+            return mapped;
+          }
+          // Unexpected format but still data
+          return clipData as any;
+        } else {
+          const errText = await clipResponse.text();
+          console.warn(`[AEGIS AI] CLIP (${label}) failed: ${clipResponse.status} - ${errText}`);
+          return null;
+        }
+      } catch (e: any) {
+        console.error(`[AEGIS AI] CLIP (${label}) error:`, e?.message || e);
+        return null;
+      }
+    }
+
+    console.log(`[AEGIS AI] Starting CLIP analysis for image: ${imageUrl.substring(0, 80)}...`);
+
+    let clipResult: Record<string, number> | null = null;
+
+    if (imageUrl.startsWith('data:image/')) {
+      // Already a data URI — extract base64
+      const base64Data = imageUrl.split(',')[1];
+      clipResult = await callClip({ type: "base64", value: base64Data }, 'data-uri');
+    } else if (imageUrl.includes('res.cloudinary.com')) {
+      // Cloudinary URL — use resize transformation for reliability, then base64 fallback
+      const resizedUrl = imageUrl.replace('/upload/', '/upload/w_512,q_80/');
+      console.log(`[AEGIS AI] Using Cloudinary resize: ${resizedUrl.substring(0, 80)}...`);
+      try {
+        const imgRes = await fetch(resizedUrl);
+        if (imgRes.ok) {
+          const buffer = await imgRes.arrayBuffer();
+          const base64Data = Buffer.from(buffer).toString('base64');
+          console.log(`[AEGIS AI] Fetched resized image, base64 length: ${base64Data.length}`);
+          clipResult = await callClip({ type: "base64", value: base64Data }, 'cloudinary-resized-b64');
+        } else {
+          console.warn(`[AEGIS AI] Cloudinary resize fetch failed: ${imgRes.status}`);
+        }
+      } catch (e: any) {
+        console.warn(`[AEGIS AI] Cloudinary resize fetch error: ${e?.message}`);
       }
 
-      const clipResponse = await fetch(`https://infer.roboflow.com/clip/compare?api_key=${process.env.ROBOFLOW_API_KEY || '21IpOwYOPyTyHWw6in1p'}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          subject: subjectPayload,
-          subject_type: "image",
-          prompt: classes
-        })
-      });
-      if (clipResponse.ok) {
-        const clipData = await clipResponse.json();
-        if (clipData.similarity && clipData.similarity.length === classes.length) {
-          const mappedResults: Record<string, number> = {};
-          classes.forEach((c, idx) => {
-            mappedResults[c] = clipData.similarity[idx];
-          });
-          clipDataString = JSON.stringify(mappedResults, null, 2);
-        } else {
-          clipDataString = JSON.stringify(clipData, null, 2);
+      // Fallback: try original URL as base64
+      if (!clipResult) {
+        console.log(`[AEGIS AI] Retrying with original Cloudinary image as base64...`);
+        try {
+          const imgRes = await fetch(imageUrl);
+          if (imgRes.ok) {
+            const buffer = await imgRes.arrayBuffer();
+            const base64Data = Buffer.from(buffer).toString('base64');
+            clipResult = await callClip({ type: "base64", value: base64Data }, 'cloudinary-full-b64');
+          }
+        } catch (e: any) {
+          console.warn(`[AEGIS AI] Original fetch error: ${e?.message}`);
         }
-      } else {
-        const errText = await clipResponse.text();
-        console.warn(`[AEGIS AI] Roboflow CLIP failed: ${clipResponse.status} - ${errText}`);
       }
-    } catch (e) {
-      console.error('[AEGIS AI] Error calling Roboflow CLIP:', e);
+
+      // Final fallback: try direct URL
+      if (!clipResult) {
+        console.log(`[AEGIS AI] Final fallback: sending URL directly to Roboflow...`);
+        clipResult = await callClip({ type: "url", value: imageUrl }, 'direct-url');
+      }
+    } else if (imageUrl.startsWith('http')) {
+      // Non-Cloudinary HTTP URL — try base64 first, then direct URL
+      try {
+        const imgRes = await fetch(imageUrl);
+        if (imgRes.ok) {
+          const buffer = await imgRes.arrayBuffer();
+          const base64Data = Buffer.from(buffer).toString('base64');
+          clipResult = await callClip({ type: "base64", value: base64Data }, 'http-b64');
+        }
+      } catch (e: any) {
+        console.warn(`[AEGIS AI] HTTP fetch error: ${e?.message}`);
+      }
+      if (!clipResult) {
+        clipResult = await callClip({ type: "url", value: imageUrl }, 'direct-url');
+      }
+    }
+
+    if (clipResult) {
+      clipDataString = JSON.stringify(clipResult, null, 2);
+      console.log(`[AEGIS AI] ✅ CLIP analysis successful! Data:\n${clipDataString}`);
+    } else {
+      console.error(`[AEGIS AI] ❌ All CLIP attempts failed. Proceeding without image analysis.`);
     }
   }
 
@@ -462,6 +535,11 @@ STEP 5: IMAGE ANALYSIS (VIA ROBOFLOW CLIP)
 ${imageUrl ? `An image was uploaded. We ran it through a Roboflow CLIP model to classify the scene.
 Here is the raw output from the Roboflow CLIP model:
 ${clipDataString}
+
+[CRITICAL INSTRUCTION FOR CLIP DATA]: The values above are CLIP cosine similarity scores. 
+- In CLIP, scores around 0.20 - 0.35 indicate a STRONG visual match. 
+- DO NOT treat these as percentages (0.25 is NOT 25% confidence, it is a very high match!).
+- The class with the HIGHEST score is the most accurate description of the image.
 
 EXAMINE THIS CLIP DATA and analyze for: disaster type match with the citizen's claim. Does the image data confirm the claimed disaster?` : 'NO IMAGE WAS UPLOADED. The citizen did not provide visual evidence. Score image analysis at 0.40 (neutral — cannot verify visually).'}
 

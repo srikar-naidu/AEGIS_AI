@@ -4,7 +4,6 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { useSocket } from '../../providers/socket-provider';
 import { Navbar } from '../../components/layout/Navbar';
-import { Sidebar } from '../../components/layout/Sidebar';
 import { StatsGrid } from '../../components/dashboard/StatsGrid';
 import { AlertsFeed } from '../../components/dashboard/AlertsFeed';
 import { IncidentsSidebar } from '../../components/dashboard/IncidentsSidebar';
@@ -188,10 +187,7 @@ export default function DashboardPage() {
 
       {/* Main Content Area */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left Sidebar Navigation */}
-        <Sidebar />
-
-        {/* Dashboard Content */}
+        {/* Left Sidebar Navigation */}{/* Dashboard Content */}
         <main className="flex-1 flex flex-col overflow-hidden">
           {/* Stats Bar */}
           <div className="p-3 border-b border-accent-sage/10 bg-bg-abyss/50">

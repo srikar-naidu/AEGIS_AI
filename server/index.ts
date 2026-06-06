@@ -13,6 +13,8 @@ import { connectDB } from './db/connection';
 import { initJobs } from './jobs/data-poller';
 import { Incident, Report, RescueTeam, Shelter, Alert } from './db/models';
 import { verifyReport } from './services/ai/verification-engine';
+import { fetchOSMResources, fetchReliefWebOrgs } from './services/rescue/aggregation-engine';
+import { enrichWithRoutes } from './services/rescue/routing-engine';
 
 // Configure Cloudinary
 cloudinary.config({
@@ -302,6 +304,32 @@ app.get('/api/rescue-teams', async (req, res) => {
     res.json(list);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch rescue teams' });
+  }
+});
+
+// Get real-time aggregated emergency resources
+app.get('/api/rescue/resources', async (req, res) => {
+  try {
+    const { lat, lng, radius } = req.query;
+    if (!lat || !lng) {
+      return res.status(400).json({ error: 'lat and lng are required' });
+    }
+    const latitude = parseFloat(lat as string);
+    const longitude = parseFloat(lng as string);
+    const searchRadius = radius ? parseInt(radius as string) : 10000;
+
+    const [osmResources, reliefWebOrgs] = await Promise.all([
+      fetchOSMResources(latitude, longitude, searchRadius),
+      fetchReliefWebOrgs(latitude, longitude),
+    ]);
+
+    let combined = [...osmResources, ...reliefWebOrgs];
+    combined = await enrichWithRoutes(latitude, longitude, combined);
+
+    res.json(combined);
+  } catch (error) {
+    console.error('Error in /api/rescue/resources:', error);
+    res.status(500).json({ error: 'Failed to fetch emergency resources' });
   }
 });
 

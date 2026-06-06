@@ -2,7 +2,6 @@
 
 import React, { useState } from 'react';
 import { Navbar } from '../../components/layout/Navbar';
-import { Sidebar } from '../../components/layout/Sidebar';
 import {
   AlertTriangle,
   MapPin,
@@ -104,9 +103,7 @@ export default function ReportPage() {
     return (
       <div className="h-screen flex flex-col overflow-hidden bg-bg-abyss">
         <Navbar />
-        <div className="flex flex-1 overflow-hidden">
-          <Sidebar />
-          <main className="flex-1 flex items-center justify-center">
+        <div className="flex flex-1 overflow-hidden"><main className="flex-1 flex items-center justify-center">
             <div className="text-center space-y-4 p-8">
               <div className="h-16 w-16 rounded-full border-2 border-success-green/40 bg-success-green/10 flex items-center justify-center mx-auto">
                 <CheckCircle className="h-8 w-8 text-success-green" />
@@ -147,9 +144,7 @@ export default function ReportPage() {
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-bg-abyss">
       <Navbar />
-      <div className="flex flex-1 overflow-hidden">
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto">
+      <div className="flex flex-1 overflow-hidden"><main className="flex-1 overflow-y-auto">
           <div className="max-w-3xl mx-auto p-6 space-y-6">
             {/* Header */}
             <div className="border-b border-accent-sage/15 pb-4">

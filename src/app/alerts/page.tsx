@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSocket } from '../../providers/socket-provider';
 import { Navbar } from '../../components/layout/Navbar';
-import { Sidebar } from '../../components/layout/Sidebar';
 import { AlertsFeed } from '../../components/dashboard/AlertsFeed';
 import { PulsingDot } from '../../components/shared/PulsingDot';
 import {
@@ -64,9 +63,7 @@ export default function AlertsPage() {
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-bg-abyss">
       <Navbar />
-      <div className="flex flex-1 overflow-hidden">
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto">
+      <div className="flex flex-1 overflow-hidden"><main className="flex-1 overflow-y-auto">
           <div className="max-w-5xl mx-auto p-6 space-y-6">
             {/* Header */}
             <div className="flex items-center justify-between border-b border-accent-sage/15 pb-4">

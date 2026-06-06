@@ -2,7 +2,6 @@
 
 import React, { useState } from 'react';
 import { Navbar } from '../../components/layout/Navbar';
-import { Sidebar } from '../../components/layout/Sidebar';
 import { PulsingDot } from '../../components/shared/PulsingDot';
 import {
   Settings,
@@ -36,9 +35,7 @@ export default function AdminPage() {
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-bg-abyss">
       <Navbar />
-      <div className="flex flex-1 overflow-hidden">
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto">
+      <div className="flex flex-1 overflow-hidden"><main className="flex-1 overflow-y-auto">
           <div className="max-w-5xl mx-auto p-6 space-y-6">
             {/* Header */}
             <div className="border-b border-accent-sage/15 pb-4 flex justify-between items-end">
