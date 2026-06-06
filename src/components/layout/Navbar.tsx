@@ -28,9 +28,8 @@ export function Navbar() {
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         {/* Logo / Branding */}
         <Link href="/" className="flex items-center gap-2.5 group">
-          <div className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-accent-sage/30 bg-bg-deep group-hover:border-accent-sage transition-colors duration-300">
-            <Shield className="h-5 w-5 text-accent-sage group-hover:scale-105 transition-transform duration-300" />
-            <div className="absolute top-0 right-0 h-1.5 w-1.5 rounded-full bg-emergency-red" />
+          <div className="relative flex h-10 w-10 items-center justify-center rounded-lg border border-accent-sage/30 bg-bg-deep group-hover:border-accent-sage transition-colors duration-300 overflow-hidden">
+            <img src="/logo.jpg" alt="AEGIS Logo" className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300" />
           </div>
           <div className="flex flex-col">
             <span className="font-heading font-black tracking-wider text-base text-accent-mint uppercase">

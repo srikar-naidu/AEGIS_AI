@@ -347,9 +347,16 @@ app.get('/api/rescue/evacuation-routes', async (req, res) => {
     const top = topN ? parseInt(topN as string) : 5;
 
     // 1. Fetch resources from OSM
-    const osmResources = await fetchOSMResources(latitude, longitude, searchRadius);
+    // 1. Fetch resources from OSM AND ReliefWeb (same sources as /api/rescue/resources)
+    const [osmResources, reliefWebOrgs] = await Promise.all([
+      fetchOSMResources(latitude, longitude, searchRadius),
+      fetchReliefWebOrgs(latitude, longitude),
+    ]);
+    const allResources = [...osmResources, ...reliefWebOrgs];
 
-    if (osmResources.length === 0) {
+    console.log(`[RescueOps] Evacuation: Found ${osmResources.length} OSM + ${reliefWebOrgs.length} ReliefWeb = ${allResources.length} total resources`);
+
+    if (allResources.length === 0) {
       return res.json({ routes: [], message: 'No verified emergency resource available from connected data sources.' });
     }
 
@@ -388,10 +395,12 @@ app.get('/api/rescue/evacuation-routes', async (req, res) => {
       }
     });
 
-    console.log(`[RescueOps] Evacuation: ${osmResources.length} resources, ${hazardZones.length} hazard zones`);
+    console.log(`[RescueOps] Evacuation: ${allResources.length} resources, ${hazardZones.length} hazard zones`);
 
     // 3. Generate scored evacuation routes
-    const routes = await generateEvacuationRoutes(latitude, longitude, osmResources, hazardZones, top);
+    const routes = await generateEvacuationRoutes(latitude, longitude, allResources, hazardZones, top);
+
+    console.log(`[RescueOps] Evacuation: Generated ${routes.length} routes`);
 
     if (routes.length === 0) {
       return res.json({ routes: [], message: 'No verified safe evacuation route available. Manual coordination required.' });

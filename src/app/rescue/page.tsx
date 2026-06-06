@@ -134,7 +134,7 @@ export default function RescuePage() {
 
     setIsLoadingEvac(true);
     setEvacMessage(null);
-    fetch(`http://localhost:3001/api/rescue/evacuation-routes?lat=${searchCenter.lat}&lng=${searchCenter.lng}&radius=10000&topN=5`)
+    fetch(`http://localhost:3001/api/rescue/evacuation-routes?lat=${searchCenter.lat}&lng=${searchCenter.lng}&radius=15000&topN=5`)
       .then(res => res.json())
       .then(data => {
         setEvacRoutes(data.routes || []);

@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Shield, ArrowRight, Activity, Terminal } from 'lucide-react';
+import { Shield, ArrowRight, Activity, Terminal, Globe } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { GradientText } from '../shared/GradientText';
 
@@ -116,7 +116,18 @@ export function HeroSection() {
               </div>
             </div>
           </div>
-          <div className="z-10 font-mono text-center space-y-3">
+          <div className="z-10 font-mono text-center space-y-3 flex flex-col items-center">
+            {/* Realistic Revolving 3D Earth */}
+            <motion.div 
+              animate={{ backgroundPosition: ["0px 0px", "-256px 0px"] }} 
+              transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
+              className="w-32 h-32 rounded-full shadow-[inset_-16px_-16px_24px_rgba(0,0,0,0.8),_inset_0_0_10px_rgba(255,255,255,0.2)] opacity-30 mb-2"
+              style={{
+                backgroundImage: "url('https://upload.wikimedia.org/wikipedia/commons/c/cd/Land_ocean_ice_2048.jpg')",
+                backgroundSize: "auto 100%",
+                backgroundRepeat: "repeat-x"
+              }}
+            />
             <div className="text-xs text-accent-sage uppercase tracking-widest animate-pulse">
               [Establishing secure geo-spatial dashboard link]
             </div>
